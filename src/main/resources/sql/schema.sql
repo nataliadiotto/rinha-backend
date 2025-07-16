@@ -1,3 +1,6 @@
+-- Drop the table if it already exists, to ensure a clean slate on each startup
+DROP TABLE IF EXISTS payments;
+
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
     correlation_id VARCHAR(36) UNIQUE NOT NULL,
