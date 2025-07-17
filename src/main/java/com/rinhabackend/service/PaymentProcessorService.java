@@ -2,6 +2,7 @@ package com.rinhabackend.service;
 
 import com.rinhabackend.dto.ExternalPaymentRequest;
 import com.rinhabackend.dto.ExternalPaymentResponse;
+import com.rinhabackend.dto.HealthCheckResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -51,5 +52,35 @@ public class PaymentProcessorService {
                 .bodyToMono(ExternalPaymentResponse.class); // Convert the response body to ExternalPaymentResponse Mono
 
     }
+
+    public Mono<HealthCheckResponse> getProcessorHealth(String processorType) {
+        WebClient targetClient;
+        String logMessage;
+
+        if ("DEFAULT".equalsIgnoreCase(processorType)) {
+            targetClient = webClientDefault;
+            logMessage = "Checking health of DEFAULT processor.";
+        } else if ("FALLBACK".equalsIgnoreCase(processorType)) {
+            targetClient = webClientFallback;
+            logMessage = "Checking health of FALLBACK processor.";
+        } else  {
+            System.err.println("Invalid processor type received: " + processorType);
+            return Mono.error(new IllegalArgumentException("Invalid processor type for health check: " + processorType));
+        }
+
+        System.out.println(logMessage);
+
+        //Build and execute the WebClient GET request
+        return targetClient.get() // Start building a GET request
+                .uri("/payments/service-health") // The specific endpoint path
+                .retrieve() // Initiate the request and retrieve the response
+                .onStatus(status -> status.isError(), clientResponse -> { // Handle any error status (4xx, 5xx)
+                    System.err.println("Error getting health from processor: " + clientResponse.statusCode());
+
+                    return Mono.error(new RuntimeException("Failed to get health from processor: " + clientResponse.statusCode()));
+                })
+                .bodyToMono(HealthCheckResponse.class); // Convert the response body to HealthCheckResponse Mono
+    }
+
 
 }
