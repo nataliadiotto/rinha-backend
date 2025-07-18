@@ -129,6 +129,14 @@ public class PaymentProcessorService {
 
     }
 
+    public HealthCheckResponse getDefaultHealthCache() {
+        return defaultHealthCache;
+    }
+
+    public HealthCheckResponse getFallbackHealthCache() {
+        return fallbackHealthCache;
+    }
+
 
 
 
