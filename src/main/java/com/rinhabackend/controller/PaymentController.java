@@ -17,6 +17,12 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/payments")
@@ -57,9 +63,9 @@ public class PaymentController {
 
         return paymentProcessorService.processPayment(
                         chosenProcessor,
-                        paymentRequest.getCorrelationId(),
+                        UUID.randomUUID().toString(),
                         paymentRequest.getAmount(),
-                        Instant.now()
+                        ISO_INSTANT_THREE_DECIMALS_FORMATTER.format(OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC))
                 )
                 .flatMap(externalResponse -> {
                     System.out.println("External processor response: " + externalResponse.message());
@@ -85,5 +91,11 @@ public class PaymentController {
                     return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
                 });
     }
+
+    private static final DateTimeFormatter ISO_INSTANT_THREE_DECIMALS_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd'T'HH:mm:ss")
+            .appendFraction(ChronoField.NANO_OF_SECOND, 3, 3, true) // 3 digits for nano-of-second
+            .appendOffsetId() // Appends the offset, e.g., '+00:00'
+            .toFormatter();
 
 }

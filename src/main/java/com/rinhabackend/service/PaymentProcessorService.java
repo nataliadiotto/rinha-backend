@@ -3,9 +3,10 @@ package com.rinhabackend.service;
 import com.rinhabackend.dto.ExternalPaymentRequest;
 import com.rinhabackend.dto.ExternalPaymentResponse;
 import com.rinhabackend.dto.HealthCheckResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -17,127 +18,162 @@ import java.time.Instant;
 @Service
 public class PaymentProcessorService {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentProcessorService.class);
+
     private final WebClient webClientDefault;
     private final WebClient webClientFallback;
+
+    // Cache fields for health checks (volatile for thread visibility)
     private volatile HealthCheckResponse defaultHealthCache;
     private volatile HealthCheckResponse fallbackHealthCache;
-    private volatile Instant lastDefaultCheckTime;
-    private volatile Instant lastFallbackCheckTime;
+    private volatile Instant lastDefaultHealthCheckTime;
+    private volatile Instant lastFallbackHealthCheckTime;
 
 
     @Autowired
     public PaymentProcessorService(WebClient.Builder webClientBuilder) {
-        //this.webClientDefault = webClientBuilder.baseUrl("http://payment-processor-default:8080").build();
-        //this.webClientFallback = webClientBuilder.baseUrl("http://payment-processor-fallback:8080").build();
-
+        // Using localhost for native app testing
         this.webClientDefault = webClientBuilder.baseUrl("http://localhost:8001").build();
         this.webClientFallback = webClientBuilder.baseUrl("http://localhost:8002").build();
 
+        // Initialize cache fields to a safe, 'unhealthy' default state for startup
         this.defaultHealthCache = new HealthCheckResponse(true, Integer.MAX_VALUE);
         this.fallbackHealthCache = new HealthCheckResponse(true, Integer.MAX_VALUE);
-        this.lastDefaultCheckTime = Instant.MIN;
-        this.lastFallbackCheckTime = Instant.MIN;
-
+        this.lastDefaultHealthCheckTime = Instant.MIN; // Ensures immediate check on startup
+        this.lastFallbackHealthCheckTime = Instant.MIN; // Ensures immediate check on startup
     }
 
-    public Mono<ExternalPaymentResponse> processPayment(String processorType, String correlationId, BigDecimal amount, Instant requestedAt) {
+    /**
+     * Sends a payment request to the specified external payment processor.
+     * Returns a Mono that will emit the ExternalPaymentResponse upon success, or an error.
+     *
+     * @param processorType   "DEFAULT" or "FALLBACK"
+     * @param correlationId   Unique ID for the payment
+     * @param amount          Amount of the payment
+     * @param requestedAt     Timestamp of the request in ISO_INSTANT string format
+     * @return Mono<ExternalPaymentResponse> representing the outcome of the request
+     */
+    public Mono<ExternalPaymentResponse> processPayment(
+            String processorType,
+            String correlationId,
+            BigDecimal amount,
+            String requestedAt) {
+
         ExternalPaymentRequest requestBody = new ExternalPaymentRequest(correlationId, amount, requestedAt);
+
+        log.info("Outgoing ExternalPaymentRequest: {}", requestBody);
 
         WebClient targetClient;
         if ("DEFAULT".equalsIgnoreCase(processorType)) {
-           targetClient = webClientDefault;
-           System.out.println("Forwarding payment to DEFAULT processor: " + correlationId);
+            targetClient = webClientDefault;
+            log.info("Forwarding payment to DEFAULT processor: {}", correlationId);
         } else if ("FALLBACK".equalsIgnoreCase(processorType)) {
-           targetClient = webClientFallback;
-           System.out.println("Forwarding payment to FALLBACK processor: " + correlationId);
+            targetClient = webClientFallback;
+            log.info("Forwarding payment to FALLBACK processor: {}", correlationId);
         } else {
-           System.err.println("Invalid processor type received: " + processorType);
-           return Mono.error(new IllegalArgumentException("Invalid processor type: " + processorType));
+            log.error("Invalid processor type received: {}", processorType);
+            return Mono.error(new IllegalArgumentException("Invalid processor type: " + processorType));
         }
 
         return targetClient.post()
-                .uri("/payments") // Endpoint path on the external processor
+                .uri("/payments")
                 .bodyValue(requestBody)
-                .retrieve() // Initiate the request and retrieve the response
-                // For 4xx errors
-                .onStatus(status -> status.is4xxClientError(), clientResponse ->
-                        Mono.error(new RuntimeException("Client error from processor: " + clientResponse.statusCode()))) // For 4xx errors
-                .onStatus(status -> status.is5xxServerError(), clientResponse ->
-                        Mono.error(new RuntimeException("Server error from processor: " + clientResponse.statusCode()))) // Handle 5xx server errors
-                .bodyToMono(ExternalPaymentResponse.class); // Convert the response body to ExternalPaymentResponse Mono
-
+                .retrieve()
+                .onStatus(status -> status.is4xxClientError(), clientResponse -> {
+                    log.error("Client error from processor {}: {}", processorType, clientResponse.statusCode());
+                    return Mono.error(new RuntimeException("Client error from processor: " + clientResponse.statusCode()));
+                })
+                .onStatus(status -> status.is5xxServerError(), clientResponse -> {
+                    log.error("Server error from processor {}: {}", processorType, clientResponse.statusCode());
+                    return Mono.error(new RuntimeException("Server error from processor: " + clientResponse.statusCode()));
+                })
+                .bodyToMono(ExternalPaymentResponse.class);
     }
 
+    /**
+     * Checks the health of a specific external payment processor.
+     * Returns a Mono that will emit the HealthCheckResponse upon success, or an error.
+     *
+     * @param processorType "DEFAULT" or "FALLBACK"
+     * @return Mono<HealthCheckResponse> representing the health status
+     */
     public Mono<HealthCheckResponse> getProcessorHealth(String processorType) {
         WebClient targetClient;
-        String logMessage;
 
         if ("DEFAULT".equalsIgnoreCase(processorType)) {
             targetClient = webClientDefault;
-            logMessage = "Checking health of DEFAULT processor.";
+            log.info("Checking health of DEFAULT processor.");
         } else if ("FALLBACK".equalsIgnoreCase(processorType)) {
             targetClient = webClientFallback;
-            logMessage = "Checking health of FALLBACK processor.";
-        } else  {
-            System.err.println("Invalid processor type received: " + processorType);
+            log.info("Checking health of FALLBACK processor.");
+        } else {
+            log.error("Invalid processor type for health check: {}", processorType);
             return Mono.error(new IllegalArgumentException("Invalid processor type for health check: " + processorType));
         }
 
-        System.out.println(logMessage);
-
-        //Build and execute the WebClient GET request
-        return targetClient.get() // Start building a GET request
-                .uri("/payments/service-health") // The specific endpoint path
-                .retrieve() // Initiate the request and retrieve the response
-                .onStatus(status -> status.isError(), clientResponse -> { // Handle any error status (4xx, 5xx)
-                    System.err.println("Error getting health from processor: " + clientResponse.statusCode());
-
+        // Build and execute the WebClient GET request
+        return targetClient.get()
+                .uri("/payments/service-health")
+                .retrieve()
+                .onStatus(status -> status.isError(), clientResponse -> {
+                    log.error("Error getting health from processor {}: {}", processorType, clientResponse.statusCode());
                     return Mono.error(new RuntimeException("Failed to get health from processor: " + clientResponse.statusCode()));
                 })
-                .bodyToMono(HealthCheckResponse.class); // Convert the response body to HealthCheckResponse Mono
+                .bodyToMono(HealthCheckResponse.class);
     }
 
+    /**
+     * Scheduled method to periodically update the cached health status of both processors.
+     * Runs every 5 seconds.
+     */
     @Scheduled(fixedRate = 5000)
-    public void updateHealthCaches() {
-        System.out.println("Scheduled health check initiated.");
+    public void updateHealthCaches() { // No parameters for @Scheduled
+        log.info("Scheduled health check initiated.");
 
+        // Check DEFAULT processor health
         getProcessorHealth("DEFAULT")
                 .subscribe(
-                        health -> {
+                        health -> { //onNext: success handler
                             defaultHealthCache = health;
-                            lastDefaultCheckTime = Instant.now();
-                            System.out.println("DEFAULT Health Updated: " + health);
+                            lastDefaultHealthCheckTime = Instant.now();
+                            log.info("DEFAULT Health Updated: {}", health);
                         },
-                        error -> {
+                        error -> { //onError: error handler
                             defaultHealthCache = new HealthCheckResponse(true, Integer.MAX_VALUE);
-                            lastDefaultCheckTime = Instant.now();
-                            System.err.println("Error checking DEFAULT health: " + error.getMessage());
-                        });
+                            lastDefaultHealthCheckTime = Instant.now();
+                            log.error("Error checking DEFAULT health: {}", error.getMessage());
+                        }
+                );
 
+        // Check FALLBACK processor health
         getProcessorHealth("FALLBACK")
                 .subscribe(
-                        health -> {
-                            defaultHealthCache = health;
-                            lastFallbackCheckTime = Instant.now();
-                            System.out.println("FALLBACK Health Updated: " + health);
+                        health -> { // onNext: success handler
+                            fallbackHealthCache = health;
+                            lastFallbackHealthCheckTime = Instant.now();
+                            log.info("FALLBACK Health Updated: {}", health);
                         },
-                        error -> {
-                            defaultHealthCache = new HealthCheckResponse(true, Integer.MAX_VALUE);
-                            lastFallbackCheckTime = Instant.now();
-                            System.err.println("Error checking FALLBACK Health: " + error.getMessage());
-                        });
-
+                        error -> { // onError: error handler
+                            fallbackHealthCache = new HealthCheckResponse(true, Integer.MAX_VALUE);
+                            lastFallbackHealthCheckTime = Instant.now();
+                            log.error("Error checking FALLBACK health: {}", error.getMessage());
+                        }
+                );
     }
 
+    /**
+     * Provides access to the current cached health status of the default processor.
+     * @return The last known HealthCheckResponse for the default processor.
+     */
     public HealthCheckResponse getDefaultHealthCache() {
         return defaultHealthCache;
     }
 
+    /**
+     * Provides access to the current cached health status of the fallback processor.
+     * @return The last known HealthCheckResponse for the fallback processor.
+     */
     public HealthCheckResponse getFallbackHealthCache() {
         return fallbackHealthCache;
     }
-
-
-
-
 }
