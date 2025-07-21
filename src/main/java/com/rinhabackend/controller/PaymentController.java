@@ -41,25 +41,16 @@ public class PaymentController {
     public Mono<ResponseEntity<Object>> processPayment(@RequestBody PaymentRequest paymentRequest) {
         System.out.println("Received payment: " + paymentRequest.getCorrelationId() + " amount " + paymentRequest.getAmount());
 
-        String chosenProcessor;
         HealthCheckResponse defaultHealth = paymentProcessorService.getDefaultHealthCache();
         HealthCheckResponse fallbackHealth = paymentProcessorService.getFallbackHealthCache();
 
-        // Strategy: Prefer DEFAULT if it's healthy, otherwise use FALLBACK if it's healthy.
-        // Otherwise, fail (or choose one and hope, for initial implementation)
-        if (!defaultHealth.failing()) { // Check if Default is NOT failing
-            chosenProcessor = "DEFAULT";
-        } else if (!fallbackHealth.failing()) {
-            chosenProcessor = "FALLBACK";
-        } else {
-            // Both are failing. For now, let's just pick DEFAULT and let the WebClient call handle the error,
-            // or you could return an error Mono immediately.
-            // For simplicity of flow, let's keep the existing error handling in processPaymentService
-            // but note this is where you might decide to reject the payment outright.
-            System.err.println("Both processors are failing. Attempting DEFAULT anyway (will likely fail).");
-            chosenProcessor = "DEFAULT"; // Or throw an exception immediately: return Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build());
-        }
-
+        String chosenProcessor = (!defaultHealth.failing() && !fallbackHealth.failing()) ?
+        // Both healthy: pick faster or default
+        (defaultHealth.minResponseTime() <= fallbackHealth.minResponseTime() ? "DEFAULT" : "FALLBACK") :
+        // Not both healthy: check if one is healthy
+        (!defaultHealth.failing() ? "DEFAULT" :
+                (!fallbackHealth.failing() ? "FALLBACK" : "DEFAULT")); // Neither healthy: default to DEFAULT
+        System.out.println("Chosen processor: " + chosenProcessor);
 
         return paymentProcessorService.processPayment(
                         chosenProcessor,
