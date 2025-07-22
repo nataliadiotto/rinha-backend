@@ -87,7 +87,9 @@ public class PaymentProcessorService {
                     log.error("Server error from processor {}: {}", processorType, clientResponse.statusCode());
                     return Mono.error(new RuntimeException("Server error from processor: " + clientResponse.statusCode()));
                 })
-                .bodyToMono(ExternalPaymentResponse.class);
+                .bodyToMono(ExternalPaymentResponse.class)
+                .timeout(java.time.Duration.ofSeconds(2))
+                .retry(1);
     }
 
     /**
@@ -119,7 +121,9 @@ public class PaymentProcessorService {
                     log.error("Error getting health from processor {}: {}", processorType, clientResponse.statusCode());
                     return Mono.error(new RuntimeException("Failed to get health from processor: " + clientResponse.statusCode()));
                 })
-                .bodyToMono(HealthCheckResponse.class);
+                .bodyToMono(HealthCheckResponse.class)
+                .timeout(java.time.Duration.ofSeconds(2))
+                .retry(1);
     }
 
     /**
