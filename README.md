@@ -1,3 +1,9 @@
+[![Java](https://img.shields.io/badge/Java-21-blue?style=for-the-badge&logo=openjdk)](https://www.oracle.com/java/technologies/downloads/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.3-brightgreen?style=for-the-badge&logo=spring-boot)](https://spring.io/projects/spring-boot)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-FFFFFF?style=for-the-badge&logo=postgresql&logoColor=blue)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/nataliadiotto/rinha-backend)
+
 # Rinha de Backend - 2025: Java Solution
 
 This is the backend application developed for the Rinha de Backend - 2025 challenge. The solution is built in Java and Spring Boot, and it is designed for high concurrency and resilience under strict resource constraints.
