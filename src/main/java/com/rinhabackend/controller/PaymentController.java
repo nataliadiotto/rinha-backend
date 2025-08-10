@@ -60,25 +60,20 @@ public class PaymentController {
                 )
                 .flatMap(externalResponse -> {
                     System.out.println("External processor response: " + externalResponse.message());
-
-                    // IMPORTANT: paymentRepository.save() is a BLOCKING call from Spring Data JDBC.
-                    // If you're returning a Mono from the controller, you should generally avoid blocking
-                    // within the reactive chain. For learning, we'll use subscribeOn
-                    // to move this blocking operation off the main event loop thread.
+                    
                     return Mono.fromCallable(() -> {
                         Payment payment = new Payment();
                         payment.setCorrelationId(paymentRequest.getCorrelationId());
                         payment.setAmount(paymentRequest.getAmount());
                         payment.setProcessorType(chosenProcessor);
                         payment.setProcessedAt(LocalDateTime.now());
-                        paymentRepository.save(payment); // This is the blocking call
+                        paymentRepository.save(payment); 
                         System.out.println("Payment saved for correlationId: " + payment.getCorrelationId());
                         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
                     }).subscribeOn(Schedulers.boundedElastic()); // Run blocking DB call on a different thread pool
                 })
                 .onErrorResume(RuntimeException.class, e -> {
                     System.err.println("Error processing payment externally: " + e.getMessage());
-                    // Error response: returns ResponseEntity<Object> now
                     return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
                 });
     }
