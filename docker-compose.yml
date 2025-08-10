@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  api-common: &api-common-config
+    image: rinha-backend-app-native:latest
+    hostname: api1
+    networks:
+      - default
+      - payment-processor
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.65"
+          memory: "100MB"
+
+  # Backend Service - Instância 1
+  api1:
+    <<: *api-common-config
+    hostname: api1
+    environment:
+      # Configurações do Redis para as APIs
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Configurações do Nginx para as APIs
+      PAYMENT_PROCESSOR_URL_DEFAULT: http://payment-processor-default:8080
+      PAYMENT_PROCESSOR_URL_FALLBACK: http://payment-processor-fallback:8080
+
+  # Backend Service - Instância 2
+  api2:
+    <<: *api-common-config
+    hostname: api2
+    environment:
+      # Configurações do Redis para as APIs
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Configurações do Nginx para as APIs
+      PAYMENT_PROCESSOR_URL_DEFAULT: http://payment-processor-default:8080
+      PAYMENT_PROCESSOR_URL_FALLBACK: http://payment-processor-fallback:8080
+
+  # Redis/Valkey Database Service
+  redis:
+    image: valkey/valkey:8.0.3-alpine # Ou redis:7.2-alpine
+    hostname: redis
+    command: [
+      "valkey-server",
+      "--save", "", # Desabilita persistência em disco para performance
+      "--appendonly", "no", # Desabilita o arquivo AOF
+      "--maxmemory", "110mb", # Limita a memória para se encaixar no total do desafio
+      "--maxmemory-policy", "noeviction", # Política de remoção de dados
+      "--timeout", "0"
+    ]
+    ports:
+      - "6379:6379"
+    networks:
+      - default
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: "135MB"
+
+  # Nginx Load Balancer Service
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    hostname: nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "9999:9999"
+    depends_on:
+      - api1
+      - api2
+    networks:
+      - default
+      - payment-processor
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: "15MB"
+
+networks:
+  default:
+    driver: bridge
+  payment-processor:
+    external: true
+    name: payment-processor
+
+volumes:
+  redis_data:
