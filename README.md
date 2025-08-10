@@ -56,7 +56,7 @@ To get the complete solution running on your local machine, follow these steps.
 2.  **Clone the Rinha Repository**:
     First, clone the official Rinha challenge repository:
     ```bash
-    git clone [https://github.com/zanfranceschi/rinha-de-backend-2025.git]
+    git clone https://github.com/zanfranceschi/rinha-de-backend-2025.git
     ```
 
 3.  **Start External Payment Processors**:
